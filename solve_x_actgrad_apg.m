@@ -1,6 +1,6 @@
 function [x_out, supp_map_out, objvalue_list_list] ...
     = solve_x_actgrad_apg(Y, X, k, lambda, supp_init_rate, map_prun_size,...
-    max_mpl_num, min_mpl_num, stop_relative_rate, map_ext_rate,...
+    max_act_num, min_act_num, stop_relative_rate, map_ext_rate,...
     inner_max_ite, inner_stop_relative_rate, is_display)
 
 %% initialization
@@ -19,24 +19,21 @@ bound_mask(1+hhks:end-hhks, 1+hwks:end-hwks) = 1;
 %% seperately process different feature map
 for iter_fd = 1:num_fd
     %%
-%     group_indicator_mat = zeros(h*w, max_mpl_num);
-    group_indicator_cell = cell(max_mpl_num);
+    group_indicator_cell = cell(max_act_num);
     %%
-    objvalue_list = zeros(max_mpl_num+1, 1);
+    objvalue_list = zeros(max_act_num+1, 1);
     %% initialization
     y = Y{iter_fd};
     x = zeros(h,w);
-    alpha = y; % dual variable 
-
+    alpha = y; 
     %% set support number, and initlize support map
     g = conv2(y, rot90(k,2),'same');
     tmpg = -inf * ones(h,w);
     tmpg(1+hhks:end-hhks, 1+hwks:end-hwks) = abs(g(1+hhks:end-hhks, 1+hwks:end-hwks));
-    % max_supp_num: number of selected components in each iteration.
+    
     tmplambdamax = max(tmpg(:));
     tmp = tmpg>=(supp_init_rate*tmplambdamax);
     slct_supp_num = sum(tmp(:));
-%     max_supp_num = max((hks*wks)*0.2, max_supp_num); % prevent too less
     if(is_display)
         fprintf('slct_supp_num = %d\n', slct_supp_num);
     end
@@ -48,24 +45,23 @@ for iter_fd = 1:num_fd
     supp_map = reshape(tmpmap, [h,w]);
     %%
     % support map refinement (pruning isolated small element group)
-    % map_prun_size: smaller regions will be pruned
+    % map_prun_size: small regions will be pruned
     supp_map = map_refine(supp_map, map_prun_size);
     group_indicator_cell{1} = supp_map;
     
     %% init obj value calculation
-    tmpalpha = alpha.*bound_mask; % tmpx = x .* supp_map;
-    % regularization term is 0, as supp_map=0;
-    objvalue = 0.5*(tmpalpha(:)'*tmpalpha(:));% + lambda * sum(abs(tmpx(:)));
+    tmpalpha = alpha.*bound_mask; 
+    objvalue = 0.5*(tmpalpha(:)'*tmpalpha(:));
     objvalue_list(1) = objvalue;
 
     %% region selection and update inner elements
-    for mpl_iter = 1:max_mpl_num
+    for act_iter = 1:max_act_num
         %% update inner elements based on current support map
         % update the elements in map to decrease \xi=||y-Hx||_2^2
         x_in = x;
         % the output x is the masked version
-        % solving problem using APG 
-        [x] = inner_x_gpl_solver_apg(x_in, y, k, supp_map, group_indicator_cell, lambda, inner_max_ite, inner_stop_relative_rate);
+        % solving the group lasso problem using APG 
+        [x] = inner_x_solver_apg(x_in, y, k, supp_map, group_indicator_cell, lambda, inner_max_ite, inner_stop_relative_rate);
         %% update dual variable, reconstruct dual variable (alpha)
         alpha = y - conv2(x, k, 'same');
         %% update support map based on the residual (alpha)
@@ -86,25 +82,23 @@ for iter_fd = 1:num_fd
         %% support map refinement (pruning isolated small element group)
         supp_map = map_refine(supp_map, map_prun_size);
         tmp_supp = supp_map - supp_map_prev;
-        %%
-        group_indicator_cell{mpl_iter+1} = tmp_supp;
+        group_indicator_cell{act_iter+1} = tmp_supp;
         %% check stop condition - TODO
         % update objective value
         r = alpha;
         tmpx = x.*supp_map; 
         tmpr = r.*bound_mask;
         objvalue = 0.5*(tmpr(:)'*tmpr(:)) + lambda*0.5*(tmpx(:)'*tmpx(:));
-        objvalue_list(mpl_iter+1) = objvalue;
+        objvalue_list(act_iter+1) = objvalue;
         
         if(is_display)
-            fprintf('ite=%d, objvalue=%f ',mpl_iter, objvalue);
+            fprintf('ite=%d, objvalue=%f ',act_iter, objvalue);
         end
                 
-        if(mpl_iter>=min_mpl_num)
-            % the maximum iteration number is used in the "for" operation
-            if(2*abs(objvalue - objvalue_list(mpl_iter))...
+        if(act_iter>=min_act_num)
+            if(2*abs(objvalue - objvalue_list(act_iter))...
                     /abs(slct_supp_num*objvalue_list(1))<stop_relative_rate)
-                fprintf('\n-- stop_ite:%d --\n', mpl_iter);
+                fprintf('\n-- stop_ite:%d --\n', act_iter);
                 break;
             end
         end
@@ -115,7 +109,7 @@ for iter_fd = 1:num_fd
     x_out{iter_fd} = x;
     tmpmap = zeros(size(x));
     tmpmap(abs(x)>1e-10)=1;
-    supp_map_out{iter_fd} = supp_map;%extend_map(tmpmap, [hhks,hwks]*map_ext_rate, 0);
+    supp_map_out{iter_fd} = supp_map; 
     objvalue_list_list{iter_fd} =  objvalue_list;
     clear group_indicator_cell
 end
@@ -124,17 +118,14 @@ return
 
 
 %% x_out is masked version.
-function [x_out] = inner_x_gpl_solver_apg(x_init, y, k, supp_map, group_indicator_cell, lambda, inner_max_ite, stop_relative_rate)
+function [x_out] = inner_x_solver_apg(x_init, y, k, supp_map, group_indicator_cell, lambda, inner_max_ite, stop_relative_rate)
 % update x based on APG only for elements in support map
 x_est = x_init;
 x_est_prev = x_est;
-selc_map = supp_map;
 selc_map_ext = extend_map(supp_map, floor(size(k)/2), 0);
 %% objective value calculation
 r = y-conv2(x_est, k, 'same'); 
 tmpr = r.*selc_map_ext; 
-% tmpx = x_est.*supp_map;
-% reglarizer evaluation:
 reg_val = 0;
 for i=1:length(group_indicator_cell)
     tmpC = group_indicator_cell{i};
@@ -158,8 +149,7 @@ for inner_iter=1:max_inner_iter
     v = x_est + ((t_prev-1)/t) * (x_est-x_est_prev);
     s_crt = s * beta; 
     grad = (conv2((conv2(v, k, 'same') - y), rot90(k, 2), 'same'));
-    %% !!line searching!!
-    %  adjust s, e.g. step size, or  "inverse of Lipschitz"
+    %% line searching
     while(true)
         %% gradient mapping
         d = v - s_crt.*grad;
@@ -219,6 +209,6 @@ for inner_iter=1:max_inner_iter
         obj_prev = obj_crt;
     end
 end
-fprintf('x_mpl_inner:%d\n', inner_iter);
+fprintf('x_est_inner:%d\n', inner_iter);
 x_out = x_est.*supp_map;
 return

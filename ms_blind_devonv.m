@@ -1,6 +1,5 @@
 function [kernel, x_est_latent, time_k_estimation] ...
-    = ms_blind_devonv(blur_img, x_mpl_opts, k_est_opts, opts)
-
+    = ms_blind_devonv(blur_img, x_est_opts, k_est_opts, opts)
 %% prepareration
 if(size(blur_img,3)==3)
     y = rgb2gray(blur_img);
@@ -26,7 +25,7 @@ khs = floor(ks/2);
 
 % feature filters (derivative filters)
 fd{1} = [-1 1; 0 0];
-fd{2} = [-1 0; 1 0]; % x,y filters
+fd{2} = [-1 0; 1 0]; 
 num_fd = length(fd);
 
 % l2 norm of gradient images, if required
@@ -55,11 +54,9 @@ for s = num_scales:-1:1
         tmpkh = ksizeh_scl; tmpkw = ksizew_scl;
     else
         % upsample kernel from previous level to next finer level
-        ksizeh_scl = ksize_list(1,s);
-        %         ksizew_scl = ksize_list(2,s) % always square kernel assumed
-        % resize kernel from previous level
         if(numel(opts.kernel_size)==1)
-            k_scl = resizeKer(k_scl,1/ret,ksize_list(s),ksize_list(s));
+            ksizeh_scl = ksize_list(1,s);
+            k_scl = resizeKer(k_scl, 1/ret, ksize_list(s),ksize_list(s));
             tmpkh = ksizeh_scl; tmpkw = tmpkh;
         else
             k_scl = resizeKer(k_scl,1/ret,ksize_list(1,s),ksize_list(2,s));
@@ -68,13 +65,20 @@ for s = num_scales:-1:1
     end
     %% resize blur image according to the ratio
     y_scl=downSmpImC(y,retv(s));
-    fprintf('\n-Processing scale %d/%d; kernel size %dx%d; image size %dx%d\n', ...
+    fprintf('\n-processing scale %d/%d; kernel size %dx%d; image size %dx%d\n', ...
         s, num_scales, tmpkh, tmpkw, size(y_scl,1), size(y_scl,2));
-    
     %%
     for i = 1:num_fd
         grad_y{i} = conv2(y_scl, fd{i}, 'valid');
         tmphs(i) = size(grad_y{i}, 1); tmpws(i) = size(grad_y{i}, 2);
+    end
+    %% ----------
+    if(opts.noise_smooth(2)>0 && s==1)
+        kk = fspecial('gaussian', opts.noise_smooth(1), opts.noise_smooth(2)); % - 2
+        y_scl = conv2(y_scl, kk, 'valid');
+        for i = 1:num_fd
+            grad_y{i} = conv2(y_scl, fd{i}, 'valid');
+        end
     end
     %%
     for i = 1:num_fd
@@ -85,8 +89,7 @@ for s = num_scales:-1:1
     clear tmp;
     % -----------
     if(s==1)
-        %% x_mpl setting
-        x_mpl_opts.lambda_x = x_mpl_opts.lambda_x_fine;
+        x_est_opts.lambda_x = x_est_opts.lambda_x_final;
     end
     
     if(s==1)
@@ -95,16 +98,14 @@ for s = num_scales:-1:1
         opts.is_k_lambda_dec = logical(0);
     end
     
-%     tic;
     x_scl = grad_y;
     [x_scl, k_scl] = ss_blind_deconv(grad_y, x_scl, k_scl, ...
-        x_mpl_opts, k_est_opts, opts);
-%     toc;
+        x_est_opts, k_est_opts, opts);
+    
     [x_scl, k_scl] = center_kernel_separate(x_scl, k_scl);
     if (s == 1)
         kernel = k_scl;
-        if(opts.k_final_iso_prun ...
-           && (strcmp(k_est_opts.type, 'l2_conj')||strcmp(k_est_opts.type, 'irls')))
+        if(opts.k_final_iso_prun)
             CC = bwconncomp(kernel,8);
             for ii=1:CC.NumObjects
                 currsum=sum(kernel(CC.PixelIdxList{ii}));
@@ -117,9 +118,6 @@ for s = num_scales:-1:1
             kernel(kernel(:) < max(kernel(:))/opts.k_thresh) = 0;
         else
             kernel(kernel(:)<0) = 0;
-        end
-        if(opts.is_kernel_diff)
-            kernel = conv2(kernel, fspecial('gaussian',3,0.4), 'same');
         end
         kernel = kernel / sum(kernel(:));
     end
@@ -147,12 +145,6 @@ k = zeros(h, w);
 % k((h+1)/2,:)=1;
 % k = k./sum(k(:));
 k((h - 1)/2, (w - 1)/2:(w - 1)/2+1) = 1/2;
-
-
-% k((h - 1)/2+1, (w - 1)/2+1) = 1/2;
-% k((minsize + 1)/2, (minsize - 1)/2:(minsize - 1)/2+1) = 1/2;
-%     k((minsize + 1)/2-1, (minsize + 1)/2:(minsize + 1)/2+1) = 1/2;
-% k = imresize(gt_k, [minsize, minsize]);
 return
 
 
