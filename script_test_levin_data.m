@@ -5,18 +5,9 @@ addpath('utils')
 addpath('evaluation');
 addpath('sparse_nbd');
 
-
-% addpath('Levin_nBD');
-% addpath('cho_code');
-% addpath('iterative_denoise_deblur_ver4');
-% addpath('NonBlindDeconvolution_Krishnan');
-% addpath('epllcode');
-% addpath('whyte_code');
-
-% root_path = '/Users/dong/Projects/proj_gradact_deblur_pami/code/';
-root_path = '/home/dong/DataDisk/proj_gradact_deblur_pami/code/';
-inpath = [root_path, '/datasets/Levin32Data/'];
-outpath = [root_path, '/results/levin_noise_free/gradact_[github-2]/'];
+root_path = '/your/workdir/';
+inpath = [root_path, '/datasets/levin_data/'];
+outpath = [root_path, '/results/gradact/'];
 
 if(~isdir(outpath))
     mkdir(outpath)
@@ -38,8 +29,8 @@ x_est_opts.lambda_x = 5e-3;
 x_est_opts.lambda_x_final = 1e-4;
 x_est_opts.supp_init_rate = 0.5;
 x_est_opts.map_prun_size = 4;
-x_est_opts.max_act_num = 10; % nn
-x_est_opts.min_act_num = 4; % nn
+x_est_opts.max_act_num = 10; 
+x_est_opts.min_act_num = 4; 
 x_est_opts.stop_relative_rate_x = 1e-5;
 x_est_opts.map_ext_rate = 1;
 x_est_opts.inner_max_ite = 20;

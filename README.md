@@ -1,8 +1,8 @@
 # gradact-deblurring
 <small>Blind Image Deblurring via Automatic Gradient Activation    
 Dong Gong, Mingkui Tan, Yanning Zhang, Anton van den Hengel, and Qinfeng Shi  
-<!-- \[[Paper](https://donggong1.github.io/publications.html)\] -->
 [Paper]
+<!-- \[[Paper](https://donggong1.github.io/publications.html)\] -->
 <small>
 
 + This package is an implemenation and **upgrade** for the paper:
